@@ -86,7 +86,7 @@ export function DefaultTabBar({
   const layoutsJS = useRef<TabLayout[]>([]);
   const [barWidth, setBarWidth] = useState(0);
   const isRTL = I18nManager.isRTL;
-  const leadingInset = scrollable ? SCROLL_PADDING : 0;
+  const rowWidthSV = useSharedValue(0);
 
   const onBarLayout = useCallback((e: LayoutChangeEvent) => {
     setBarWidth(e.nativeEvent.layout.width);
@@ -124,7 +124,7 @@ export function DefaultTabBar({
     const hidden = { opacity: 0, width: 0, transform: [{ translateX: 0 }] };
     const layouts = layoutsSV.value;
     const count = tabNames.length;
-    if (layouts.length < count) return hidden;
+    if (layouts.length < count || (isRTL && rowWidthSV.value <= 0)) return hidden;
     for (let i = 0; i < count; i++) {
       if (!layouts[i]) return hidden;
     }
@@ -136,15 +136,12 @@ export function DefaultTabBar({
     const l1 = layouts[i1] as TabLayout;
     const width = l0.width + (l1.width - l0.width) * fraction;
 
-    // RTL: onLayout x is still physical-left and translateX isn't mirrored — offset from widths, then negate.
-    let lead0 = leadingInset;
-    for (let j = 0; j < i0; j++) lead0 += (layouts[j] as TabLayout).width;
-    const lead1 = i1 > i0 ? lead0 + l0.width : lead0;
-    const offset = lead0 + (lead1 - lead0) * fraction;
-    const translateX = isRTL ? -offset : offset;
+    //offset physical tab frames from the RTL anchor, including margins
+    const x = l0.x + (l1.x - l0.x) * fraction;
+    const translateX = isRTL ? x + width - rowWidthSV.value : x;
 
     return { opacity: 1, width, transform: [{ translateX }] };
-  }, [tabNames.length, isRTL, leadingInset]);
+  }, [tabNames.length, isRTL]);
 
   const itemStyle = [
     styles.tab,
@@ -219,12 +216,22 @@ export function DefaultTabBar({
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
+          onContentSizeChange={(width) => {
+            //measure the full row, including content beyond the viewport
+            rowWidthSV.value = width;
+          }}
         >
           {items}
           {indicator}
         </ScrollView>
       ) : (
-        <View style={styles.fixedRow}>
+        <View
+          style={styles.fixedRow}
+          onLayout={(e) => {
+            //measure the indicator's containing row
+            rowWidthSV.value = e.nativeEvent.layout.width;
+          }}
+        >
           {items}
           {indicator}
         </View>
