@@ -36,6 +36,7 @@ import Animated, {
   withTiming,
   type SharedValue,
 } from 'react-native-reanimated';
+import { USE_REANIMATED_DEPENDENCIES } from './reanimatedCompat';
 import {
   ActiveTabContext,
   CollapsingTabsContext,
@@ -765,7 +766,7 @@ export const Container = forwardRef<CollapsingTabsRef, ContainerProps>(
           { translateY: -Math.min(collapse.value, collapseRangeSV.value) },
         ],
       }),
-      [collapse, collapseRangeSV],
+      USE_REANIMATED_DEPENDENCIES ? [collapse, collapseRangeSV] : undefined,
     );
 
     const ctxValue = useMemo<CollapsingTabsContextValue>(

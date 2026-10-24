@@ -20,6 +20,7 @@ import Animated, {
   useSharedValue,
   type SharedValue,
 } from 'react-native-reanimated';
+import { USE_REANIMATED_DEPENDENCIES } from './reanimatedCompat';
 
 export type VisualTabChangeEvent = { index: number; tabName: string };
 
@@ -154,32 +155,36 @@ export function DefaultTabBar({
     });
   }, [displayIndex, scrollable, barWidth]);
 
-  const indicatorStyle = useAnimatedStyle(() => {
-    // Reanimated locks the animated prop set on the first eval, so every branch
-    // must return the same keys. The hidden branch usually runs first (layouts
-    // arrive async after mount); if it only set opacity, width/transform would
-    // never join the set and the indicator would stay zero-width — invisible.
-    const hidden = { opacity: 0, width: 0, transform: [{ translateX: 0 }] };
-    const layouts = layoutsSV.value;
-    const count = tabNames.length;
-    if (layouts.length < count || (isRTL && rowWidthSV.value <= 0)) return hidden;
-    for (let i = 0; i < count; i++) {
-      if (!layouts[i]) return hidden;
-    }
-    const pos = Math.min(Math.max(indexDecimal.value, 0), count - 1);
-    const i0 = Math.floor(pos);
-    const i1 = Math.min(i0 + 1, count - 1);
-    const fraction = pos - i0;
-    const l0 = layouts[i0] as TabLayout;
-    const l1 = layouts[i1] as TabLayout;
-    const width = l0.width + (l1.width - l0.width) * fraction;
+  const indicatorStyle = useAnimatedStyle(
+    () => {
+      // Reanimated locks the animated prop set on the first eval, so every branch
+      // must return the same keys. The hidden branch usually runs first (layouts
+      // arrive async after mount); if it only set opacity, width/transform would
+      // never join the set and the indicator would stay zero-width — invisible.
+      const hidden = { opacity: 0, width: 0, transform: [{ translateX: 0 }] };
+      const layouts = layoutsSV.value;
+      const count = tabNames.length;
+      if (layouts.length < count || (isRTL && rowWidthSV.value <= 0))
+        return hidden;
+      for (let i = 0; i < count; i++) {
+        if (!layouts[i]) return hidden;
+      }
+      const pos = Math.min(Math.max(indexDecimal.value, 0), count - 1);
+      const i0 = Math.floor(pos);
+      const i1 = Math.min(i0 + 1, count - 1);
+      const fraction = pos - i0;
+      const l0 = layouts[i0] as TabLayout;
+      const l1 = layouts[i1] as TabLayout;
+      const width = l0.width + (l1.width - l0.width) * fraction;
 
-    //offset physical tab frames from the RTL anchor, including margins
-    const x = l0.x + (l1.x - l0.x) * fraction;
-    const translateX = isRTL ? x + width - rowWidthSV.value : x;
+      //offset physical tab frames from the RTL anchor, including margins
+      const x = l0.x + (l1.x - l0.x) * fraction;
+      const translateX = isRTL ? x + width - rowWidthSV.value : x;
 
-    return { opacity: 1, width, transform: [{ translateX }] };
-  }, [tabNames.length, isRTL]);
+      return { opacity: 1, width, transform: [{ translateX }] };
+    },
+    USE_REANIMATED_DEPENDENCIES ? [tabNames.length, isRTL] : undefined,
+  );
 
   const itemStyle = [styles.tab, scrollable ? null : styles.tabFixed, tabStyle];
   const rippleConfig =
