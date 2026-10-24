@@ -14,10 +14,14 @@ import {
   type ViewStyle,
 } from 'react-native';
 import Animated, {
+  runOnJS,
+  useAnimatedReaction,
   useAnimatedStyle,
   useSharedValue,
   type SharedValue,
 } from 'react-native-reanimated';
+
+export type VisualTabChangeEvent = { index: number; tabName: string };
 
 type TabLayout = { x: number; width: number };
 
@@ -29,6 +33,10 @@ export type DefaultTabBarProps = {
   tabLabels?: Record<string, string>;
   focusedTab: SharedValue<string>;
   indexDecimal: SharedValue<number>;
+  /** Supplied by Container to retain the requested tab during tap animations. */
+  visualIndex?: SharedValue<number>;
+  /** Visual selection only; does not activate content or change onTabChange timing. */
+  onVisualTabChange?: (event: VisualTabChangeEvent) => void;
   onTabPress: (name: string) => void;
   /** React-state mirror of the active tab, for label styling. */
   activeIndex: number;
@@ -65,6 +73,8 @@ export function DefaultTabBar({
   tabNames,
   tabLabels,
   indexDecimal,
+  visualIndex,
+  onVisualTabChange,
   onTabPress,
   activeIndex,
   scrollable = true,
@@ -87,6 +97,34 @@ export function DefaultTabBar({
   const [barWidth, setBarWidth] = useState(0);
   const isRTL = I18nManager.isRTL;
   const rowWidthSV = useSharedValue(0);
+  const [selectedTab, setSelectedTab] = useState(tabNames[activeIndex]);
+  const selectedIndex = tabNames.indexOf(selectedTab ?? '');
+  const displayIndex =
+    selectedIndex >= 0
+      ? selectedIndex
+      : Math.min(Math.max(activeIndex, 0), tabNames.length - 1);
+  const lastVisualTab = useRef<VisualTabChangeEvent | null>(null);
+
+  useAnimatedReaction(
+    () => {
+      const index = visualIndex?.value ?? Math.round(indexDecimal.value);
+      return tabNames[Math.min(Math.max(index, 0), tabNames.length - 1)];
+    },
+    (name, previous) => {
+      // Reanimated 3 is still supported; bridge only selection changes, not frames.
+      if (name !== previous) runOnJS(setSelectedTab)(name);
+    },
+  );
+
+  useEffect(() => {
+    const tabName = tabNames[displayIndex];
+    if (tabName === undefined) return;
+    const previous = lastVisualTab.current;
+    if (previous?.tabName === tabName && previous.index === displayIndex)
+      return;
+    lastVisualTab.current = { index: displayIndex, tabName };
+    onVisualTabChange?.(lastVisualTab.current);
+  }, [displayIndex, tabNames, onVisualTabChange]);
 
   const onBarLayout = useCallback((e: LayoutChangeEvent) => {
     setBarWidth(e.nativeEvent.layout.width);
@@ -108,13 +146,13 @@ export function DefaultTabBar({
   // Keep the active tab centered in a scrollable bar.
   useEffect(() => {
     if (!scrollable || barWidth === 0) return;
-    const layout = layoutsJS.current[activeIndex];
+    const layout = layoutsJS.current[displayIndex];
     if (!layout) return;
     scrollRef.current?.scrollTo({
       x: Math.max(0, layout.x + layout.width / 2 - barWidth / 2),
       animated: true,
     });
-  }, [activeIndex, scrollable, barWidth]);
+  }, [displayIndex, scrollable, barWidth]);
 
   const indicatorStyle = useAnimatedStyle(() => {
     // Reanimated locks the animated prop set on the first eval, so every branch
@@ -143,11 +181,7 @@ export function DefaultTabBar({
     return { opacity: 1, width, transform: [{ translateX }] };
   }, [tabNames.length, isRTL]);
 
-  const itemStyle = [
-    styles.tab,
-    scrollable ? null : styles.tabFixed,
-    tabStyle,
-  ];
+  const itemStyle = [styles.tab, scrollable ? null : styles.tabFixed, tabStyle];
   const rippleConfig =
     pressColor != null || android_ripple != null
       ? { color: pressColor, ...android_ripple }
@@ -155,7 +189,7 @@ export function DefaultTabBar({
   const rippleActive = Platform.OS === 'android' && rippleConfig != null;
 
   const items = tabNames.map((name, i) => {
-    const focused = i === activeIndex;
+    const focused = i === displayIndex;
     const color = focused ? activeColor : inactiveColor;
     const label = tabLabels?.[name] ?? name;
     return (
