@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { runOnJS, useAnimatedReaction } from 'react-native-reanimated';
 import {
   Tabs,
   type TabBarRenderProps,
@@ -11,12 +13,22 @@ function PillTabBar({
   tabNames,
   tabLabels,
   activeIndex,
+  visualIndex,
   onTabPress,
 }: TabBarRenderProps) {
+  // visualIndex moves on tap / mid-swipe; activeIndex waits for the page to settle.
+  const [selected, setSelected] = useState(activeIndex);
+  useAnimatedReaction(
+    () => visualIndex.value,
+    (index, previous) => {
+      if (index !== previous) runOnJS(setSelected)(index);
+    },
+  );
+
   return (
     <View style={styles.bar}>
       {tabNames.map((name, i) => {
-        const focused = i === activeIndex;
+        const focused = i === selected;
         return (
           <Pressable
             key={name}
