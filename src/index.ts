@@ -15,7 +15,11 @@ export { Tab, type TabProps } from './Tab';
 export { TabScrollView, type TabScrollViewProps } from './ScrollView';
 export { TabFlatList, type TabFlatListProps } from './FlatList';
 export { TabSectionList, type TabSectionListProps } from './SectionList';
-export { DefaultTabBar, type DefaultTabBarProps } from './TabBar';
+export {
+  DefaultTabBar,
+  type DefaultTabBarProps,
+  type VisualTabChangeEvent,
+} from './TabBar';
 export {
   useActiveTabScrollY,
   useAnimatedTabIndex,

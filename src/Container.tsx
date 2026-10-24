@@ -26,6 +26,7 @@ import Animated, {
   runOnUI,
   scrollTo,
   useAnimatedStyle,
+  useDerivedValue,
   useSharedValue,
   withDecay,
   withTiming,
@@ -55,6 +56,8 @@ export type TabBarRenderProps = {
   focusedTab: SharedValue<string>;
   /** Continuous pager position (fractional during swipes). */
   indexDecimal: SharedValue<number>;
+  /** Visual selection: immediate on requests, nearest page during a drag. */
+  visualIndex: SharedValue<number>;
   /** React-state mirror of the focused tab index. */
   activeIndex: number;
   onTabPress: (name: string) => void;
@@ -251,6 +254,14 @@ export const Container = forwardRef<CollapsingTabsRef, ContainerProps>(
 
     const activeIndexSV = useSharedValue(initialIndex);
     const pagerPosition = useSharedValue(initialIndex);
+    const requestedIndex = useSharedValue(-1);
+    // Nearest page, with a dead zone so a hovering finger can't flip-flop.
+    const swipeIndex = useSharedValue(initialIndex);
+    const visualIndex = useDerivedValue(() => {
+      const index =
+        requestedIndex.value >= 0 ? requestedIndex.value : swipeIndex.value;
+      return Math.min(Math.max(index, 0), tabCount - 1);
+    });
     const dragTarget = useSharedValue(0);
     const panStartOffset = useSharedValue(0);
     const focusedTab = useSharedValue(tabNames[initialIndex] ?? '');
@@ -395,8 +406,17 @@ export const Container = forwardRef<CollapsingTabsRef, ContainerProps>(
       [offsets, collapse],
     );
 
+    // In-flight setPage targets, oldest first.
+    const pendingRequests = useRef<number[]>([]);
+
     const goToIndex = useCallback(
       (index: number, animated = true) => {
+        if (index < 0 || index >= tabNamesRef.current.length) return;
+        const pending = pendingRequests.current;
+        // Repeat of the newest request: another setPage would emit an untracked iOS event.
+        if (pending[pending.length - 1] === index) return;
+        pending.push(index);
+        requestedIndex.value = index;
         const from = activeIndexRef.current;
         const lo = Math.min(from, index);
         const hi = Math.max(from, index);
@@ -407,7 +427,7 @@ export const Container = forwardRef<CollapsingTabsRef, ContainerProps>(
         if (animated) pagerRef.current?.setPage(index);
         else pagerRef.current?.setPageWithoutAnimation(index);
       },
-      [syncTab, mountTab],
+      [syncTab, mountTab, requestedIndex],
     );
 
     const onTabPress = useCallback(
@@ -421,6 +441,22 @@ export const Container = forwardRef<CollapsingTabsRef, ContainerProps>(
     const handlePageSelected = useCallback(
       (e: { nativeEvent: { position: number } }) => {
         const index = e.nativeEvent.position;
+        if (index < 0 || index >= tabNamesRef.current.length) return;
+        // iOS emits no idle after setPage: release the request on an
+        // unrequested page. Events arrive in request order, so consume
+        // through the oldest match but keep the newest request.
+        const pending = pendingRequests.current;
+        if (pending.length > 0) {
+          const at = pending.indexOf(index);
+          if (at === -1) {
+            pendingRequests.current = [];
+            requestedIndex.value = -1;
+          } else if (at < pending.length - 1) {
+            pendingRequests.current = pending.slice(at + 1);
+          } else {
+            pendingRequests.current = [index];
+          }
+        }
         const prevIndex = activeIndexRef.current;
         syncTab(index);
         mountTab(index);
@@ -439,12 +475,31 @@ export const Container = forwardRef<CollapsingTabsRef, ContainerProps>(
           });
         }
       },
-      [syncTab, mountTab, activeIndexSV, focusedTab, onIndexChange, onTabChange],
+      [
+        syncTab,
+        mountTab,
+        activeIndexSV,
+        focusedTab,
+        requestedIndex,
+        onIndexChange,
+        onTabChange,
+      ],
     );
 
     const handlePageScrollStateChanged = useCallback(
       (e: { nativeEvent: { pageScrollState: string } }) => {
+        // Native selection can arrive before the animation finishes.
+        if (e.nativeEvent.pageScrollState === 'idle') {
+          runOnUI(() => {
+            'worklet';
+            if (Math.round(pagerPosition.value) === requestedIndex.value) {
+              requestedIndex.value = -1;
+            }
+          })();
+        }
         if (e.nativeEvent.pageScrollState === 'dragging') {
+          pendingRequests.current = [];
+          requestedIndex.value = -1;
           const current = activeIndexRef.current;
           syncTab(current - 1);
           syncTab(current + 1);
@@ -453,7 +508,7 @@ export const Container = forwardRef<CollapsingTabsRef, ContainerProps>(
           mountTab(current + 1);
         }
       },
-      [syncTab, mountTab],
+      [syncTab, mountTab, requestedIndex, pagerPosition],
     );
 
     // Keep state consistent when tabs are added/removed at runtime.
@@ -465,19 +520,37 @@ export const Container = forwardRef<CollapsingTabsRef, ContainerProps>(
         activeIndexRef.current = clamped;
         activeIndexSV.value = clamped;
         setActiveIndex(clamped);
+        pagerPosition.value = clamped;
+        swipeIndex.value = clamped;
         pagerRef.current?.setPageWithoutAnimation(clamped);
       }
       focusedTab.value = tabNames[activeIndexRef.current] ?? '';
-    }, [tabCount, tabNames, activeIndexSV, focusedTab]);
+      pendingRequests.current = pendingRequests.current.filter(
+        (i) => i < tabCount,
+      );
+      if (requestedIndex.value >= tabCount) requestedIndex.value = -1;
+    }, [
+      tabCount,
+      tabNames,
+      activeIndexSV,
+      focusedTab,
+      pagerPosition,
+      swipeIndex,
+      requestedIndex,
+    ]);
 
     const pagerScrollHandler = usePagerScrollHandler(
       {
         onPageScroll: (e) => {
           'worklet';
-          pagerPosition.value = e.position + e.offset;
+          const position = e.position + e.offset;
+          pagerPosition.value = position;
+          if (Math.abs(position - swipeIndex.value) > 0.55) {
+            swipeIndex.value = Math.round(position);
+          }
         },
       },
-      [pagerPosition],
+      [pagerPosition, swipeIndex],
     );
 
     useImperativeHandle(
@@ -492,8 +565,7 @@ export const Container = forwardRef<CollapsingTabsRef, ContainerProps>(
             goToIndex(index, animated);
           }
         },
-        getFocusedTab: () =>
-          tabNamesRef.current[activeIndexRef.current] ?? '',
+        getFocusedTab: () => tabNamesRef.current[activeIndexRef.current] ?? '',
         getCurrentIndex: () => activeIndexRef.current,
         scrollToTop: (animated = true) => {
           cancelHeaderAnimations();
@@ -616,6 +688,7 @@ export const Container = forwardRef<CollapsingTabsRef, ContainerProps>(
         tabLabels,
         focusedTab,
         indexDecimal: pagerPosition,
+        visualIndex,
         activeIndex,
         onTabPress,
       })
@@ -625,6 +698,7 @@ export const Container = forwardRef<CollapsingTabsRef, ContainerProps>(
         tabLabels={tabLabels}
         focusedTab={focusedTab}
         indexDecimal={pagerPosition}
+        visualIndex={visualIndex}
         activeIndex={activeIndex}
         onTabPress={onTabPress}
       />
@@ -666,10 +740,12 @@ export const Container = forwardRef<CollapsingTabsRef, ContainerProps>(
                 onPageScrollStateChanged={handlePageScrollStateChanged}
               >
                 {tabChildren.map((child, i) => {
-                  const { name, lazy: tabLazy, children: tabContent } =
-                    child.props;
-                  const mount =
-                    !(tabLazy ?? lazy) || mountedTabs.has(name);
+                  const {
+                    name,
+                    lazy: tabLazy,
+                    children: tabContent,
+                  } = child.props;
+                  const mount = !(tabLazy ?? lazy) || mountedTabs.has(name);
                   const inWindow =
                     !windowed ||
                     (i <= activeIndex

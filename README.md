@@ -181,6 +181,8 @@ All hooks must be used inside `<Tabs.Container>` (header, tab bar, and tab conte
 
 Used when you don't pass `renderTabBar`. Accessible (`tablist`/`tab` roles, selected state) and stylable: `scrollable` (default `true`; `false` = equal-width tabs), `backgroundColor`, `activeColor`, `inactiveColor`, `indicatorColor`, `pressColor`, `pressOpacity`, `android_ripple`, `style`, `tabStyle`, `labelStyle`, `indicatorStyle`, `renderLabel`.
 
+The highlighted tab switches as soon as a tab is tapped or a swipe passes halfway; `onTabChange` still fires once the page settles. Custom tab bars can match this with the `visualIndex` shared value from `renderTabBar` props, and `onVisualTabChange` reports highlight changes (including cancelled swipes).
+
 Press feedback is opt-in. `pressColor` and `android_ripple` configure the Android ripple; `pressOpacity` provides opacity feedback when no Android ripple is active. Pass these options through `renderTabBar`:
 ```tsx
 renderTabBar={(props) => <DefaultTabBar {...props} pressColor="#eeeeee" />}
