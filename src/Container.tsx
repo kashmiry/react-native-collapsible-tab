@@ -637,6 +637,9 @@ export const Container = forwardRef<CollapsingTabsRef, ContainerProps>(
         }
         pagerPosition.value = index;
         swipeIndex.value = index;
+        // The restore cancels any in-flight tap, so drop its highlight too.
+        pendingRequests.current = [];
+        requestedIndex.value = -1;
         // Redraw removed pages even when the native index is unchanged.
         pagerRef.current?.setPageWithoutAnimation(nativeIndex);
       }
