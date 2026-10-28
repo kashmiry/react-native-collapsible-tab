@@ -19,7 +19,11 @@ import {
   useTabPageContext,
   type TabListHandle,
 } from './context';
-import { useRestoreTabOffset, useTabContentStyle } from './adapterUtils';
+import {
+  useRefreshScrollRef,
+  useRestoreTabOffset,
+  useTabContentStyle,
+} from './adapterUtils';
 
 const AnimatedSectionList = Animated.createAnimatedComponent(
   SectionList,
@@ -98,6 +102,8 @@ function TabSectionListInner<ItemT, SectionT = DefaultSectionT>(
     },
     [syncScrollRef, ref],
   );
+
+  useRefreshScrollRef(syncScrollRef, rest);
 
   const scrollToOffset = useCallback((offset: number, animated = false) => {
     scrollListTo(listRef.current, offset, animated);
